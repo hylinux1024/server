@@ -1,3 +1,4 @@
 __pycache__/
 *.pyc
-scheme.tl
+Thallium/tl/functions.cpp
+Thallium/tl/types.cpp

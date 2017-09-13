@@ -11,7 +11,7 @@ class TLObject:
         0x1cb5c415,  # vector#1cb5c415 {t:Type} # [ t ] = Vector t;
     )
 
-    def __init__(self, fullname, object_id, args, result, is_function):
+    def __init__(self, fullname, object_id, args, result, layer, is_function):
         """
         Initializes a new TLObject, given its properties.
         Usually, this will be called from `from_tl` instead
@@ -20,6 +20,7 @@ class TLObject:
         :param object_id: The hexadecimal string representing the object ID
         :param args: The arguments, if any, of the TL object
         :param result: The result type of the TL object
+        :param layer: The layer version of the TL object
         :param is_function: Is the object a function or a type?
         """
         # The name can or not have a namespace
@@ -32,18 +33,36 @@ class TLObject:
 
         self.args = args
         self.result = result
+        self.layer = layer
         self.is_function = is_function
 
         # The ID should be an hexadecimal string or None to be inferred
         if object_id is None:
             self.id = self.infer_id()
         else:
-            self.id = int(object_id, base=16)
-            assert self.id == self.infer_id(),\
-                'Invalid inferred ID for ' + repr(self)
+            self.id = object_id
+            if self.name != "vector":
+                assert self.id == self.infer_id(),\
+                    'Invalid inferred ID for ' + repr(self)
 
     @staticmethod
-    def from_tl(tl, is_function):
+    def from_json(dictionary, is_function):
+        """Returns a TL object from the given JSON scheme line"""
+
+        # Retrieve the matched arguments
+        args = [TLArg(param['name'], param['type'], False)
+                for param in dictionary['params']]
+
+        return TLObject(
+            fullname=dictionary['predicate'],
+            object_id=int.from_bytes(int(dictionary['id']).to_bytes(4, byteorder='little', signed=True), byteorder='little', signed=False),
+            layer=dictionary['layer'],
+            args=args,
+            result=dictionary['type'],
+            is_function=is_function)
+        
+    @staticmethod
+    def from_tl(tl, layer, is_function):
         """Returns a TL object from the given TL scheme line"""
 
         # Regex to match the whole line
@@ -88,10 +107,15 @@ class TLObject:
         args = [TLArg(name, arg_type, brace != '')
                 for brace, name, arg_type, _ in args_match]
 
+        if match.group(2) is None:
+            id = None
+        else:
+            id = int(match.group(2), 16)
         # And initialize the TLObject
         return TLObject(
             fullname=match.group(1),
-            object_id=match.group(2),
+            object_id=id,
+            layer=layer,
             args=args,
             result=match.group(3),
             is_function=is_function)
@@ -134,7 +158,8 @@ class TLObject:
             .replace(':bytes ', ':string ')\
             .replace('?bytes ', '?string ')\
             .replace('<', ' ').replace('>', '')\
-            .replace('{', '').replace('}', '')
+            .replace('{', '').replace('}', '')\
+    
 
         representation = re.sub(
             r' \w+:flags\.\d+\?true',
@@ -220,7 +245,7 @@ class TLArg:
                 self.type = flag_match.group(2)
 
             # Then check if the type is a Vector<REAL_TYPE>
-            vector_match = re.match(r'vector<(\w+)>', self.type, re.IGNORECASE)
+            vector_match = re.match(r'vector<(%?)(\w+)>', self.type, re.IGNORECASE)
             if vector_match:
                 self.is_vector = True
 
@@ -230,7 +255,9 @@ class TLArg:
                 self.use_vector_id = self.type[0] == 'V'
 
                 # Update the type to match the one inside the vector
-                self.type = vector_match.group(1)
+                self.type = vector_match.group(2)
+                if vector_match.group(1) != '':
+                    self.type = vector_match.group(2).lower() # should use a real type lookup here but meh
 
         self.generic_definition = generic_definition
 
@@ -297,4 +324,4 @@ class TLArg:
         # Get rid of our special type
         return str(self)\
             .replace(':date', ':int')\
-            .replace('?date', '?int')
+            .replace('?date', '?int')\

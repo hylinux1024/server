@@ -1,5 +1,5 @@
 import re
-
+import json
 from .tl_object import TLObject
 
 
@@ -7,43 +7,59 @@ class TLParser:
     """Class used to parse .tl files"""
 
     @staticmethod
-    def parse_file(file_path, ignore_core=False):
+    def parse_files(schemes, ignore_core=False):
         """This method yields TLObjects from a given .tl file"""
+        for layer, file_path in schemes.items():
 
-        with open(file_path, encoding='utf-8') as file:
-            # Start by assuming that the next found line won't
-            # be a function (and will hence be a type)
-            is_function = False
+            with open(file_path, encoding='utf-8') as file:
+                try:
+                    jdata = json.load(file)
+                    for constructor in jdata['constructors']:
+                        if 'layer' not in constructor:
+                            constructor['layer'] = layer
+                        result = TLObject.from_json(constructor, is_function=False)
+                        if not ignore_core or not result.is_core_type():
+                            yield result
 
-            # Read all the lines from the .tl file
-            for line in file:
-                line = line.strip()
+                    for method in jdata['methods']:
+                        method['predicate'] = method['method']
+                        if 'layer' not in method:
+                            method['layer'] = layer
 
-                # Ensure that the line is not a comment
-                if line and not line.startswith('//'):
+                        result = TLObject.from_json(method, is_function=True)
+                        if not ignore_core or not result.is_core_type():
+                            yield result
+                        
+                except json.decoder.JSONDecodeError:
+                    file.seek(0)
 
-                    # Check whether the line is a type change
-                    # (types <-> functions) or not
-                    match = re.match('---(\w+)---', line)
-                    if match:
-                        following_types = match.group(1)
-                        is_function = following_types == 'functions'
+                    # Start by assuming that the next found line won't
+                    # be a function (and will hence be a type)
+                    is_function = False
 
-                    else:
-                        try:
-                            result = TLObject.from_tl(line, is_function)
-                            if not ignore_core or not result.is_core_type():
-                                yield result
-                        except ValueError as e:
-                            if 'vector#1cb5c415' not in str(e):
-                                raise
+                    # Read all the lines from the .tl file
+                    for line in file:
+                        line = line.strip()
 
-    @staticmethod
-    def find_layer(file_path):
-        """Finds the layer used on the specified scheme.tl file"""
-        layer_regex = re.compile(r'^//\s*LAYER\s*(\d+)$')
-        with open(file_path, encoding='utf-8') as file:
-            for line in file:
-                match = layer_regex.match(line)
-                if match:
-                    return int(match.group(1))
+                        # Ensure that the line is not a comment
+                        if line and not line.startswith('//'):
+
+                            # Check whether the line is a type change
+                            # (types <-> functions) or not
+                            match = re.match('---(\w+)---', line)
+                            if match:
+                                is_function = match.group(1) == 'functions'
+                                continue
+
+                            match = re.search('^===(\d+)===$', line)
+                            if match:
+                                layer = match.group(1)
+                                continue
+
+                            try:
+                                result = TLObject.from_tl(line, layer=layer, is_function=is_function)
+                                if not ignore_core or not result.is_core_type():
+                                    yield result
+                            except ValueError as e:
+                                if 'vector#1cb5c415' not in str(e):
+                                    raise
