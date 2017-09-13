@@ -34,27 +34,27 @@ class TLGenerator:
 
         tlobjects = tuple(TLParser.parse_files(scheme_files, ignore_core=True))
 
-        namespace_functions = defaultdict(list)
-        namespace_types = defaultdict(list)
-        function_abstracts = set()
-        object_abstracts = set()
+        layer_functions = defaultdict(lambda: defaultdict(list))
+        layer_types = defaultdict(lambda: defaultdict(list))
+        function_abstracts = defaultdict(set)
+        object_abstracts = defaultdict(set)
 
         for tlobject in tlobjects:
             tlobject.result = TLArg.get_sanitized_result(tlobject.result)
             
             if tlobject.is_function:
-                namespace_functions[tlobject.namespace].append(tlobject)
-                function_abstracts.add(tlobject.result)
+                layer_functions[tlobject.layer][tlobject.namespace].append(tlobject)
+                function_abstracts[tlobject.layer].add(tlobject.result)
             else:
-                namespace_types[tlobject.namespace].append(tlobject)
-                object_abstracts.add(tlobject.result)
+                layer_types[tlobject.layer][tlobject.namespace].append(tlobject)
+                object_abstracts[tlobject.layer].add(tlobject.result)
 
-        self._generate_source(self._get_file('functions.cpp'), namespace_functions, function_abstracts)
-        self._generate_source(self._get_file('types.cpp'), namespace_types, object_abstracts)
+        self._generate_source(self._get_file('functions.cpp'), layer_functions, function_abstracts)
+        self._generate_source(self._get_file('types.cpp'), layer_types, object_abstracts)
 
     @staticmethod
-    def _generate_source(file, namespace_tlobjects, abstracts):
-        # namespace_tlobjects: {'namespace', [TLObject]}
+    def _generate_source(file, layer_tlobjects, layer_abstracts):
+        # layer_tlobjects: {'namespace', [TLObject]}
         with open(file, 'w', encoding='utf-8') as f, SourceBuilder(f) as builder:
             builder.writeln(AUTO_GEN_NOTICE)
             builder.writeln('#include <optional>')
@@ -65,33 +65,36 @@ class TLGenerator:
             builder.writeln('namespace TL {')
 
             builder.writeln('namespace Type {')
-            for a in sorted(abstracts):
-                builder.writeln('class {} : public Serializable {{ }}'.format(a))
+            for layer, abstracts in layer_abstracts.items():
+                builder.writeln('namespace {} {{'.format(layer))
+                for a in sorted(abstracts):
+                    builder.writeln('class {} : public Serializable {{ }}'.format(a))
+                builder.end_block()
+
             builder.end_block()
 
-            lastlayer = 0
-            for ns, tlobjects in namespace_tlobjects.items():
-
-                # Generate the class for every TLObject
-                for t in sorted(tlobjects, key=lambda x: x.name):
-                    if lastlayer != t.layer:
-                        builder.writeln('namespace {} {{'.format(t.layer))
-                        lastlayer = t.layer
+            for layer, namespace_tlobjects in layer_tlobjects.items():
+                builder.writeln('namespace {} {{'.format(layer))
+                for ns, tlobjects in namespace_tlobjects.items():
                     if ns:
                         builder.writeln('namespace {} {{'.format(ns))
-                        ns = None
 
-                    TLGenerator._write_source_code(t, builder)
+                    # Generate the class for every TLObject
+                    for t in sorted(tlobjects, key=lambda x: x.name):
+                        TLGenerator._write_source_code(t, builder)
 
-                if ns:
-                    builder.end_block()
+
+                    if ns:
+                        builder.end_block()
+                builder.end_block()
+
             builder.end_block()
 
 
     @staticmethod
     def _write_source_code(tlobject, builder):
         class_name = TLObject.get_class_name(tlobject)
-        builder.writeln('class {} : public TL::Type::{} {{'.format(class_name, tlobject.result))
+        builder.writeln('class {} : public TL::Type::{}::{} {{'.format(class_name, tlobject.layer, tlobject.result))
         builder.current_indent -= 1
         builder.writeln('public:')
         builder.current_indent += 1
@@ -108,11 +111,11 @@ class TLGenerator:
         ]
 
         for arg in args:
-            builder.writeln('{};'.format(arg.get_type_name('TL::Type::')))
+            builder.writeln('{};'.format(arg.get_type_name('TL::Type::{}::'.format(tlobject.layer))))
 
         # Write the constructor
-        params = [arg.get_type_name('TL::Type::') if not arg.is_flag
-                  else '{} = {{}}'.format(arg.get_type_name('TL::Type::')) for arg in args]
+        params = [arg.get_type_name('TL::Type::{}::'.format(tlobject.layer)) if not arg.is_flag
+                  else '{} = {{}}'.format(arg.get_type_name('TL::Type::{}::'.format(tlobject.layer))) for arg in args]
 
         builder.writeln()
         builder.writeln(
