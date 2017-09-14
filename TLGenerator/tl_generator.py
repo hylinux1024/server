@@ -130,7 +130,7 @@ class TLGenerator:
 
         builder.end_block()
 
-        builder.writeln('void write(Stream &stream) override {')
+        builder.writeln('void write(const OutputStream& stream) override {')
         builder.writeln('stream << {}::CONSTRUCTOR;'.format(class_name))
         for arg in args:
             if arg.is_vector:
@@ -144,7 +144,7 @@ class TLGenerator:
                 builder.writeln('stream << {};'.format(arg.name))
         builder.end_block()
 
-        builder.writeln('void read(Stream &stream) override {')
+        builder.writeln('void read(const OutputStream& stream) override {')
         if any(a for a in args if a.is_vector):
             builder.writeln('uint32_t _len, _i;')
         for arg in args:

@@ -7,7 +7,7 @@ class OutputStream;
 
 class Serializable {
 public:
-    virtual void write(OutputStream const&) const = 0;
+    virtual void write(const OutputStream&) const = 0;
     virtual void read() = 0;
 };
 
