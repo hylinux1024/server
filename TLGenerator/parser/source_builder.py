@@ -45,7 +45,7 @@ class SourceBuilder:
     def end_block(self):
         """Ends an indentation block, leaving an empty line afterwards"""
         self.current_indent -= 1
-        self.writeln('}')
+        self.writeln('};')
 
         # If we did not add a new line automatically yet, now it's the time!
         if not self.auto_added_line:

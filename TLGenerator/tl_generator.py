@@ -61,6 +61,7 @@ class TLGenerator:
             builder.writeln('#include <string>')
             builder.writeln('#include <vector>')
             builder.writeln('#include <stdint.h>')
+            builder.writeln('#include "../stream.cpp"')
             builder.writeln()
             builder.writeln('namespace TL {')
 
@@ -68,7 +69,7 @@ class TLGenerator:
             for layer, abstracts in layer_abstracts.items():
                 builder.writeln('namespace L{} {{'.format(layer))
                 for a in sorted(abstracts):
-                    builder.writeln('class {} : public Serializable {{ }}'.format(a))
+                    builder.writeln('class {} : public Serializable {{ }};'.format(a))
                 builder.end_block()
 
             builder.end_block()
