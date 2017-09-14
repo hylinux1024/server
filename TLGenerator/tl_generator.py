@@ -41,7 +41,7 @@ class TLGenerator:
 
         for tlobject in tlobjects:
             tlobject.result = TLArg.get_sanitized_result(tlobject.result)
-            
+
             if tlobject.is_function:
                 layer_functions[tlobject.layer][tlobject.namespace].append(tlobject)
                 function_abstracts[tlobject.layer].add(tlobject.result)
@@ -66,7 +66,7 @@ class TLGenerator:
 
             builder.writeln('namespace Type {')
             for layer, abstracts in layer_abstracts.items():
-                builder.writeln('namespace {} {{'.format(layer))
+                builder.writeln('namespace L{} {{'.format(layer))
                 for a in sorted(abstracts):
                     builder.writeln('class {} : public Serializable {{ }}'.format(a))
                 builder.end_block()
@@ -74,7 +74,7 @@ class TLGenerator:
             builder.end_block()
 
             for layer, namespace_tlobjects in layer_tlobjects.items():
-                builder.writeln('namespace {} {{'.format(layer))
+                builder.writeln('namespace L{} {{'.format(layer))
                 for ns, tlobjects in namespace_tlobjects.items():
                     if ns:
                         builder.writeln('namespace {} {{'.format(ns))
@@ -82,7 +82,6 @@ class TLGenerator:
                     # Generate the class for every TLObject
                     for t in sorted(tlobjects, key=lambda x: x.name):
                         TLGenerator._write_source_code(t, builder)
-
 
                     if ns:
                         builder.end_block()
@@ -94,7 +93,11 @@ class TLGenerator:
     @staticmethod
     def _write_source_code(tlobject, builder):
         class_name = TLObject.get_class_name(tlobject)
-        builder.writeln('class {} : public TL::Type::{}::{} {{'.format(class_name, tlobject.layer, tlobject.result))
+        ns_prefix = 'TL::Type::L{}::'.format(tlobject.layer)
+
+        builder.writeln('class {} : public {}{} {{'.format(
+            class_name, ns_prefix, tlobject.result
+        ))
         builder.current_indent -= 1
         builder.writeln('public:')
         builder.current_indent += 1
@@ -111,11 +114,11 @@ class TLGenerator:
         ]
 
         for arg in args:
-            builder.writeln('{};'.format(arg.get_type_name('TL::Type::{}::'.format(tlobject.layer))))
+            builder.writeln('{};'.format(arg.get_type_name(ns_prefix)))
 
         # Write the constructor
-        params = [arg.get_type_name('TL::Type::{}::'.format(tlobject.layer)) if not arg.is_flag
-                  else '{} = {{}}'.format(arg.get_type_name('TL::Type::{}::'.format(tlobject.layer))) for arg in args]
+        params = [arg.get_type_name(ns_prefix) if not arg.is_flag
+                  else '{} = {{}}'.format(arg.get_type_name(ns_prefix)) for arg in args]
 
         builder.writeln()
         builder.writeln(
