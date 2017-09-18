@@ -49,64 +49,66 @@ class TLGenerator:
                 layer_types[tlobject.layer][tlobject.namespace].append(tlobject)
                 object_abstracts[tlobject.layer].add(tlobject.result)
 
-        self._generate_source(self._get_file('functions.cpp'), layer_functions, function_abstracts)
-        self._generate_source(self._get_file('types.cpp'), layer_types, object_abstracts)
+        self._generate_source(self._get_file('functions.cpp'), self._get_file('functions.h'), layer_functions, function_abstracts)
+        self._generate_source(self._get_file('types.cpp'), self._get_file('types.h'), layer_types, object_abstracts)
 
     @staticmethod
-    def _generate_source(file, layer_tlobjects, layer_abstracts):
+    def _generate_source(file, header, layer_tlobjects, layer_abstracts):
         # layer_tlobjects: {'namespace', [TLObject]}
-        with open(file, 'w', encoding='utf-8') as f, SourceBuilder(f) as builder:
-            builder.writeln(AUTO_GEN_NOTICE)
-            builder.writeln('#include <optional>')
-            builder.writeln('#include <string>')
-            builder.writeln('#include <vector>')
-            builder.writeln('#include <stdint.h>')
-            builder.writeln('#include "../stream.cpp"')
-            builder.writeln()
-            builder.writeln('namespace TL {')
+        with open(file, 'w', encoding='utf-8') as f, open(header, 'w', encoding='utf-8') as h, SourceBuilder(f) as builder, SourceBuilder(h) as headerbuilder:
+            headerbuilder.writeln(AUTO_GEN_NOTICE)
+            headerbuilder.writeln(AUTO_GEN_NOTICE)
 
-            builder.writeln('namespace Type {')
+            headerbuilder.writeln('#include <optional>')
+            headerbuilder.writeln('#include <string>')
+            headerbuilder.writeln('#include <vector>')
+            headerbuilder.writeln('#include <stdint.h>')
+            headerbuilder.writeln('#include "../stream.cpp"')
+            headerbuilder.writeln()
+            headerbuilder.writeln('namespace TL {')
+
+            headerbuilder.writeln('namespace Type {')
             for layer, abstracts in layer_abstracts.items():
-                builder.writeln('namespace L{} {{'.format(layer))
+                headerbuilder.writeln('namespace L{} {{'.format(layer))
                 for a in sorted(abstracts):
-                    builder.writeln('class {} : public Serializable {{ }};'.format(a))
-                builder.end_block()
+                    headerbuilder.writeln('class {} : public Serializable {{ }};'.format(a))
+                headerbuilder.end_block()
 
-            builder.end_block()
+            headerbuilder.end_block()
 
             for layer, namespace_tlobjects in layer_tlobjects.items():
-                builder.writeln('namespace L{} {{'.format(layer))
+                headerbuilder.writeln('namespace L{} {{'.format(layer))
                 for ns, tlobjects in namespace_tlobjects.items():
                     if ns:
-                        builder.writeln('namespace {} {{'.format(ns))
+                        headerbuilder.writeln('namespace {} {{'.format(ns))
 
                     # Generate the class for every TLObject
                     for t in sorted(tlobjects, key=lambda x: x.name):
-                        TLGenerator._write_source_code(t, builder)
+                        TLGenerator._write_source_code(t, builder, headerbuilder)
 
                     if ns:
-                        builder.end_block()
-                builder.end_block()
+                        headerbuilder.end_block()
+                headerbuilder.end_block()
 
-            builder.end_block()
+            headerbuilder.end_block()
 
 
     @staticmethod
-    def _write_source_code(tlobject, builder):
+    def _write_source_code(tlobject, builder, headerbuilder):
         class_name = TLObject.get_class_name(tlobject)
         ns_prefix = 'TL::Type::L{}::'.format(tlobject.layer)
 
-        builder.writeln('class {} : public {}{} {{'.format(
+        headerbuilder.writeln('class {} : public {}{} {{'.format(
             class_name, ns_prefix, tlobject.result
         ))
-        builder.current_indent -= 1
-        builder.writeln('public:')
-        builder.current_indent += 1
+        headerbuilder.current_indent -= 1
+        headerbuilder.writeln('public:')
+        headerbuilder.current_indent += 1
 
-        builder.writeln('static const uint32_t CONSTRUCTOR = {};'.format(
+        headerbuilder.writeln('static const uint32_t CONSTRUCTOR = {};'.format(
             hex(tlobject.id)
         ))
-        builder.writeln()
+        headerbuilder.writeln()
 
         # Flag arguments must go last
         args = [
@@ -115,15 +117,18 @@ class TLGenerator:
         ]
 
         for arg in args:
-            builder.writeln('{};'.format(arg.get_type_name(ns_prefix)))
+            headerbuilder.writeln('{};'.format(arg.get_type_name(ns_prefix)))
 
         # Write the constructor
         params = [arg.get_type_name(ns_prefix) if not arg.is_flag
                   else '{} = {{}}'.format(arg.get_type_name(ns_prefix)) for arg in args]
-
-        builder.writeln()
+        print(params)
+        headerbuilder.writeln()
         builder.writeln(
             '{}({}) {{'.format(class_name, ', '.join(params))
+        )
+        headerbuilder.writeln(
+            'TL::L{}::{}({});'.format(tlobject.layer, class_name, ', '.join(params))
         )
 
         for arg in args:
@@ -132,37 +137,39 @@ class TLGenerator:
         builder.end_block()
 
         builder.writeln('void write(const OutputStream& stream) override {')
-        builder.writeln('stream << {}::CONSTRUCTOR;'.format(class_name))
+        headerbuilder.writeln('void write(const OutputStream& stream) override {')
+        headerbuilder.writeln('stream << {}::CONSTRUCTOR;'.format(class_name))
         for arg in args:
             if arg.is_vector:
                 if arg.use_vector_id:
-                    builder.writeln('stream << 0x1cb5c415;')
-                builder.writeln('stream << static_cast<uint32_t>({}.size());'.format(arg.name))
-                builder.writeln('for (auto const& _x: {}) {{'.format(arg.name))
-                builder.writeln('stream << _x;')
-                builder.end_block()
+                    headerbuilder.writeln('stream << 0x1cb5c415;')
+                headerbuilder.writeln('stream << static_cast<uint32_t>({}.size());'.format(arg.name))
+                headerbuilder.writeln('for (auto const& _x: {}) {{'.format(arg.name))
+                headerbuilder.writeln('stream << _x;')
+                headerbuilder.end_block()
             else:
-                builder.writeln('stream << {};'.format(arg.name))
-        builder.end_block()
+                headerbuilder.writeln('stream << {};'.format(arg.name))
+        headerbuilder.end_block()
 
-        builder.writeln('void read(const OutputStream& stream) override {')
+        headerbuilder.writeln('void read(const OutputStream& stream) override {')
         if any(a for a in args if a.is_vector):
-            builder.writeln('uint32_t _len, _i;')
+            headerbuilder.writeln('uint32_t _len, _i;')
         for arg in args:
             if arg.is_vector:
                 if arg.use_vector_id:
-                    builder.writeln('stream >> _i;')
-                builder.writeln('stream >> _len;')
-                builder.writeln('for (_i = 0; i != _len; ++_i) {')
+                    headerbuilder.writeln('stream >> _i;')
+                headerbuilder.writeln('stream >> _len;')
+                headerbuilder.writeln('for (_i = 0; i != _len; ++_i) {')
                 # TODO Actually read the TLObject
-                builder.writeln('/* TODO Actually read the TLObject */')
-                builder.end_block()
+                headerbuilder.writeln('/* TODO Actually read the TLObject */')
+                headerbuilder.end_block()
             else:
-                builder.writeln('stream >> {};'.format(arg.name))
-        builder.end_block()
-        builder.end_block()
+                headerbuilder.writeln('stream >> {};'.format(arg.name))
+        headerbuilder.end_block()
+        headerbuilder.end_block()
 
 if __name__ == '__main__':
+    os.chdir(os.path.dirname(os.path.realpath(__file__)))
     generator = TLGenerator('../Thallium/tl')
     print('Detected previous TLObjects. Cleaning...')
     generator.clean_tlobjects()
